@@ -1,52 +1,83 @@
-from flask import Flask, request, jsonify
-from transformers import AutoModelForCausalLM, AutoProcessor
+import os
+import base64
+from io import BytesIO
 from PIL import Image
-import requests
+from transformers import AutoModelForCausalLM, AutoProcessor
 import torch
+from flask import Flask, request, jsonify
+from concurrent.futures import ProcessPoolExecutor
+
+# Set environment variables to use all CPU cores
+os.environ["OMP_NUM_THREADS"] = "all"  # Use all threads via OpenMP
+os.environ["MKL_NUM_THREADS"] = "all"  # Use all threads via MKL
+os.environ["NUMEXPR_NUM_THREADS"] = "all"  # For NumExpr calculations
 
 # Initialize Flask app
 app = Flask(__name__)
 
 # Load the model and processor
-device = "cuda" if torch.cuda.is_available() else "cpu"
-model = AutoModelForCausalLM.from_pretrained("MiaoshouAI/Florence-2-large-PromptGen-v2.0", trust_remote_code=True).to(device)
+model = AutoModelForCausalLM.from_pretrained("MiaoshouAI/Florence-2-large-PromptGen-v2.0", trust_remote_code=True)
 processor = AutoProcessor.from_pretrained("MiaoshouAI/Florence-2-large-PromptGen-v2.0", trust_remote_code=True)
 
-# Define the prompt
-prompt = "<MORE_DETAILED_CAPTION>"
+# Prepare the device (GPU if available, else CPU)
+#device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")
+model.to(device)
 
-@app.route('/analyze', methods=['POST'])
-def analyze_image():
-    # Get the image URL from the request
-    data = request.json
-    image_url = data.get('image_url')
+# Helper function to decode an image from base64
+def decode_image_from_base64(base64_string):
+    # Decode the image from the base64 string
+    image_data = base64.b64decode(base64_string)
+    image = Image.open(BytesIO(image_data))
+    return image
 
-    if not image_url:
-        return jsonify({"error": "No image URL provided"}), 400
+# Helper function to process images
+def process_image(image, prompt):
+    inputs = processor(text=prompt, images=image, return_tensors="pt").to(device)
+    input_ids = inputs["input_ids"].to(device)
+    pixel_values = inputs["pixel_values"].to(device)
 
+    generated_ids = model.generate(
+        input_ids=input_ids,
+        pixel_values=pixel_values,
+        max_new_tokens=1024,
+        do_sample=False,
+        num_beams=3
+    )
+
+    generated_text = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
+    parsed_answer = processor.post_process_generation(generated_text, task=prompt, image_size=(image.width, image.height))
+
+    return parsed_answer
+
+# Define the endpoint for caption generation
+@app.route("/caption", methods=["POST"])
+def generate_caption():
     try:
-        # Download and open the image
-        image = Image.open(requests.get(image_url, stream=True).raw)
+        # Get JSON data from the request
+        data = request.get_json()
+        prompt = data.get("prompt", "<MORE_DETAILED_CAPTION>")  # Default prompt if none is provided
+        image_base64 = data.get("image_base64")
 
-        # Process the image and generate the caption
-        inputs = processor(text=prompt, images=image, return_tensors="pt").to(device)
+        if not image_base64:
+            return jsonify({"error": "Image base64 string is required"}), 400
 
-        generated_ids = model.generate(
-            input_ids=inputs["input_ids"],
-            pixel_values=inputs["pixel_values"],
-            max_new_tokens=1024,
-            do_sample=False,
-            num_beams=3
-        )
+        # Decode the image from base64
+        image = decode_image_from_base64(image_base64)
 
-        generated_text = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
-        parsed_answer = processor.post_process_generation(generated_text, task=prompt, image_size=(image.width, image.height))
+        # Process the image and generate caption using multiprocessing
+        with ProcessPoolExecutor() as executor:
+            result = executor.submit(process_image, image, prompt)
+            caption = result.result()
 
-        # Return the generated caption
-        return jsonify({"caption": parsed_answer}), 200
+        # Return the result as a JSON response
+        return jsonify({"caption": caption})
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+
+# Run the Flask app
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+
