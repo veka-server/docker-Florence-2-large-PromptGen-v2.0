@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir \
     flask
 
 # Copy the Python script into the container at /app
-COPY script.py /app/
+COPY app.py /app/
 
 # Set environment variables to not generate bytecode and to enable debugging
 ENV PYTHONDONTWRITEBYTECODE 1
