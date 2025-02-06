@@ -58,11 +58,7 @@ def generate_caption():
 
         # Decode the image from base64
         image = decode_image_from_base64(image_base64)
-
-        # Process the image and generate caption using multiprocessing
-        with ProcessPoolExecutor() as executor:
-            result = executor.submit(process_image, image, prompt)
-            caption = result.result()
+        caption = process_image(image, prompt)
 
         # Return the result as a JSON response
         return jsonify({"caption": caption})
