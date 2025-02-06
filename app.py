@@ -15,7 +15,7 @@ model = AutoModelForCausalLM.from_pretrained("MiaoshouAI/Florence-2-large-Prompt
 processor = AutoProcessor.from_pretrained("MiaoshouAI/Florence-2-large-PromptGen-v2.0", trust_remote_code=True)
 
 # Prepare the device (GPU if available, else CPU)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda")
 model.to(device)
 
 # Helper function to decode an image from base64
