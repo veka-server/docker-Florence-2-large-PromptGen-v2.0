@@ -7,11 +7,6 @@ import torch
 from flask import Flask, request, jsonify
 from concurrent.futures import ProcessPoolExecutor
 
-# Set environment variables to use all CPU cores
-os.environ["OMP_NUM_THREADS"] = "all"  # Use all threads via OpenMP
-os.environ["MKL_NUM_THREADS"] = "all"  # Use all threads via MKL
-os.environ["NUMEXPR_NUM_THREADS"] = "all"  # For NumExpr calculations
-
 # Initialize Flask app
 app = Flask(__name__)
 
@@ -20,8 +15,7 @@ model = AutoModelForCausalLM.from_pretrained("MiaoshouAI/Florence-2-large-Prompt
 processor = AutoProcessor.from_pretrained("MiaoshouAI/Florence-2-large-PromptGen-v2.0", trust_remote_code=True)
 
 # Prepare the device (GPU if available, else CPU)
-#device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = torch.device("cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 
 # Helper function to decode an image from base64
